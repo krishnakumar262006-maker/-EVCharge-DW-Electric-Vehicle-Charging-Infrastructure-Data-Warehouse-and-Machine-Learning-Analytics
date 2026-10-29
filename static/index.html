@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>EVCharge DW Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+:root{--bg:#f4f6f8;--card:#fff;--ink:#1c2733;--mut:#667;--pri:#0b7a75;--bd:#dde3e8}
+*{box-sizing:border-box}body{margin:0;font:14px/1.45 system-ui,Segoe UI,Arial,sans-serif;background:var(--bg);color:var(--ink)}
+header{background:#0f2f3a;color:#fff;padding:14px 24px}header h1{margin:0;font-size:20px}header small{opacity:.75}
+nav{display:flex;gap:4px;padding:10px 24px 0;flex-wrap:wrap}nav button{border:0;background:#e3e9ee;padding:9px 16px;border-radius:8px 8px 0 0;cursor:pointer;font-weight:600;color:#345}
+nav button.on{background:var(--card);color:var(--pri)}
+.bar{display:flex;gap:12px;flex-wrap:wrap;padding:12px 24px;background:var(--card);border-bottom:1px solid var(--bd);align-items:end}
+.bar label{font-size:12px;color:var(--mut);display:flex;flex-direction:column;gap:3px}select{padding:6px 8px;border:1px solid var(--bd);border-radius:6px;min-width:120px}
+main{padding:18px 24px}.tab{display:none}.tab.on{display:block}
+.grid{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(380px,1fr))}.kpis{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));margin-bottom:16px}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:14px}.card h3{margin:0 0 8px;font-size:14px}
+.kpi b{display:block;font-size:24px;color:var(--pri)}.kpi span{color:var(--mut);font-size:12px}
+canvas{max-height:300px}table{border-collapse:collapse;width:100%;font-size:13px}th,td{padding:6px 8px;border-bottom:1px solid var(--bd);text-align:left}th{background:#f0f4f7;position:sticky;top:0}
+.scroll{max-height:340px;overflow:auto}pre{background:#10222b;color:#cfe;padding:10px;border-radius:8px;white-space:pre-wrap;font-size:12px}
+.ops button{margin:0 6px 8px 0;padding:8px 14px;border:1px solid var(--pri);background:#fff;color:var(--pri);border-radius:20px;cursor:pointer;font-weight:600}.ops button.on{background:var(--pri);color:#fff}
+.note{background:#fff7e0;border:1px solid #f0d98a;padding:8px 12px;border-radius:8px;margin-bottom:14px;font-size:12px}
+</style></head><body>
+<header><h1>EVCharge DW &mdash; EV Charging Infrastructure Data Warehouse</h1><small>CSI3010 Data Warehousing &amp; Data Mining &middot; Review 3 Dashboard</small></header>
+<nav id="nav"></nav>
+<div class="bar" id="bar">
+ <label>Year<select id="fy"></select></label><label>Month<select id="fm"></select></label>
+ <label>City<select id="fc"></select></label><label>Charger type<select id="ft"></select></label>
+</div>
+<main>
+<div class="note">Data note: payment &amp; maintenance tables are <b>synthetic</b>; if <code>data/raw</code> was auto-generated, the session data is synthetic too. Outliers are flagged and excluded from analysis.</div>
+<section class="tab on" id="t0"><div class="kpis" id="kpis"></div>
+ <div class="grid">
+  <div class="card"><h3>Roll-up: energy by year (kWh)</h3><canvas id="c_roll"></canvas></div>
+  <div class="card"><h3>Drill-down: energy by month (kWh)</h3><canvas id="c_drill"></canvas></div>
+  <div class="card"><h3>Peak charging hours (sessions)</h3><canvas id="c_hour"></canvas></div>
+  <div class="card"><h3>Energy by city (kWh)</h3><canvas id="c_city"></canvas></div>
+  <div class="card"><h3>Charger-type share (energy)</h3><canvas id="c_chg"></canvas></div>
+  <div class="card"><h3>Top 10 stations</h3><div class="scroll" id="top"></div></div>
+  <div class="card"><h3>Top vehicles (sessions)</h3><canvas id="c_veh"></canvas></div>
+  <div class="card"><h3>Payment mix (sessions)</h3><canvas id="c_pay"></canvas></div>
+ </div></section>
+<section class="tab" id="t1"><div class="card"><h3>OLAP explorer (uses the filters above)</h3>
+  <div class="ops" id="ops"></div><pre id="sql"></pre><div class="scroll" id="olap"></div>
+  <p style="color:#667;font-size:12px">Slice defaults to charger type = DC Fast when no charger filter is chosen. For Dice pick city + charger + month in the filter bar.</p></div></section>
+<section class="tab" id="t2"><div class="grid">
+  <div class="card"><h3>K-Means clusters (session count vs total energy)</h3><canvas id="c_km"></canvas></div>
+  <div class="card"><h3>Cluster profile (means)</h3><div class="scroll" id="kmsum"></div><p id="kmmet" style="color:#667"></p></div>
+  <div class="card"><h3>Elbow &amp; silhouette (K selection)</h3><canvas id="c_elb"></canvas></div>
+  <div class="card"><h3>Clusters by city (stations)</h3><canvas id="c_kcity"></canvas></div>
+  <div class="card" style="grid-column:1/-1"><h3>Station assignments</h3><div class="scroll" id="kmtab"></div></div></div></section>
+<section class="tab" id="t3"><div class="grid">
+  <div class="card"><h3>Maintenance cost by year (INR)</h3><canvas id="c_mcost"></canvas></div>
+  <div class="card"><h3>Downtime hours by issue type</h3><canvas id="c_missue"></canvas></div>
+  <div class="card" style="grid-column:1/-1"><h3>Top 10 stations by downtime</h3><div class="scroll" id="mtop"></div></div></div></section>
+<section class="tab" id="t4"><div class="grid"><div class="card"><h3>Data-quality report (ETL)</h3><div id="dq"></div></div>
+  <div class="card"><h3>Warehouse table row counts</h3><div id="dc"></div></div></div></section>
+</main>
+<script>
+const $=s=>document.querySelector(s), COL=['#0b7a75','#e07a1f','#5b5bd6','#d6336c','#2f9e44','#f0b429','#868e96','#1c7ed6'];
+const fmt=n=>n==null?'-':Number(n).toLocaleString('en-IN',{maximumFractionDigits:1});
+const MN=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const TABS=['Overview','OLAP Explorer','Data Mining (K-Means)','Maintenance','Data Quality'];
+const charts={};
+function qs(){const p=new URLSearchParams();[['year','fy'],['month','fm'],['city','fc'],['charger_type','ft']].forEach(([k,i])=>{if($('#'+i).value)p.set(k,$('#'+i).value)});return p.toString()}
+async function api(path,f=true){const r=await fetch('/api/'+path+(f?(path.includes('?')?'&':'?')+qs():''));return r.json()}
+function chart(id,type,labels,sets,opt={}){if(charts[id])charts[id].destroy();
+ charts[id]=new Chart($('#'+id),{type,data:{labels,datasets:sets},options:Object.assign({responsive:true,plugins:{legend:{display:sets.length>1||type==='doughnut'}}},opt)})}
+function table(el,rows,cols){if(!rows.length){$(el).innerHTML='<i>No rows for this filter combination.</i>';return}
+ cols=cols||Object.keys(rows[0]);$(el).innerHTML='<table><tr>'+cols.map(c=>`<th>${c}</th>`).join('')+'</tr>'+rows.map(r=>'<tr>'+cols.map(c=>`<td>${typeof r[c]==='number'?fmt(r[c]):(r[c]??'-')}</td>`).join('')+'</tr>').join('')+'</table>'}
+function opts(sel,vals,all){$(sel).innerHTML=`<option value="">${all}</option>`+vals.map(v=>`<option>${v}</option>`).join('')}
+async function overview(){
+ const [k,ro,dr,hr,ci,ch,top,ve,pa]=await Promise.all(['kpis','rollup','drilldown','hourly','city','charger','top_stations','vehicle','payment'].map(n=>api('q/'+n)));
+ const r=k.rows[0];$('#kpis').innerHTML=[['Sessions',r.sessions],['Energy (kWh)',r.energy_kwh],['Revenue (INR)',r.revenue_inr],['Avg duration (min)',r.avg_duration],['Active stations',r.stations]]
+  .map(([a,b])=>`<div class="card kpi"><b>${fmt(b)}</b><span>${a}</span></div>`).join('');
+ chart('c_roll','bar',ro.rows.map(x=>x.year),[{label:'kWh',data:ro.rows.map(x=>x.energy_kwh),backgroundColor:COL[0]}]);
+ chart('c_drill','line',dr.rows.map(x=>`${MN[x.month-1]} ${x.year}`),[{label:'kWh',data:dr.rows.map(x=>x.energy_kwh),borderColor:COL[1],tension:.25,pointRadius:1}]);
+ chart('c_hour','bar',hr.rows.map(x=>x.hour+':00'),[{label:'Sessions',data:hr.rows.map(x=>x.sessions),backgroundColor:COL[2]}]);
+ chart('c_city','bar',ci.rows.map(x=>x.city),[{label:'kWh',data:ci.rows.map(x=>x.energy_kwh),backgroundColor:COL[4]}]);
+ chart('c_chg','doughnut',ch.rows.map(x=>x.charger_type),[{data:ch.rows.map(x=>x.energy_kwh),backgroundColor:COL}]);
+ chart('c_veh','bar',ve.rows.map(x=>x.vehicle),[{label:'Sessions',data:ve.rows.map(x=>x.sessions),backgroundColor:COL[3]}],{indexAxis:'y'});
+ chart('c_pay','doughnut',pa.rows.map(x=>x.payment_type),[{data:pa.rows.map(x=>x.sessions),backgroundColor:COL}]);
+ table('#top',top.rows,['station_id','city','charger_type','energy_kwh','sessions'])}
+let op='rollup';
+function buildOps(){const L=[['rollup','Roll-up'],['drilldown','Drill-down'],['daily','Drill to day'],['slice','Slice'],['dice','Dice'],['pivot','Pivot']];
+ $('#ops').innerHTML=L.map(([k,n])=>`<button data-k="${k}" class="${k==op?'on':''}">${n}</button>`).join('');
+ document.querySelectorAll('#ops button').forEach(b=>b.onclick=()=>{op=b.dataset.k;buildOps();olap()})}
+async function olap(){const d=await api(op=='pivot'?'pivot':'q/'+op);$('#sql').textContent=d.sql+(Object.keys(d.params).length?'\n-- params: '+JSON.stringify(d.params):'');
+ table('#olap',d.rows.slice(0,200),d.columns)}
+async function mining(){const d=await api('clusters',false);
+ const order=d.summary.map(s=>s.cluster_label);
+ chart('c_km','scatter',null,order.map((l,i)=>({label:l,data:d.stations.filter(s=>s.cluster_label==l).map(s=>({x:s.session_count,y:s.total_energy_kwh})),backgroundColor:COL[i]})),{scales:{x:{title:{display:true,text:'Session count'}},y:{title:{display:true,text:'Total energy kWh'}}}});
+ table('#kmsum',d.summary);const m=d.metrics;$('#kmmet').textContent=`K used = ${m.k_used}, silhouette = ${m.silhouette_k_used}, best K by silhouette = ${m.best_k_by_silhouette}. Features: ${m.features.join(', ')}.`;
+ chart('c_elb','line',m.k_values,[{label:'Inertia (elbow)',data:m.inertia,borderColor:COL[0],yAxisID:'y'},{label:'Silhouette',data:m.silhouette,borderColor:COL[1],yAxisID:'y1'}],{scales:{y:{position:'left'},y1:{position:'right',grid:{drawOnChartArea:false}}}});
+ const cities=[...new Set(d.by_city.map(x=>x.city))];
+ chart('c_kcity','bar',cities,order.map((l,i)=>({label:l,backgroundColor:COL[i],data:cities.map(c=>(d.by_city.find(x=>x.city==c&&x.cluster_label==l)||{}).stations||0)})),{scales:{x:{stacked:true},y:{stacked:true}}});
+ table('#kmtab',d.stations.sort((a,b)=>b.total_energy_kwh-a.total_energy_kwh))}
+async function maint(){const d=await api('maintenance',false);
+ chart('c_mcost','bar',d.by_year.map(x=>x.year),[{label:'Cost INR',data:d.by_year.map(x=>x.cost_inr),backgroundColor:COL[3]}]);
+ chart('c_missue','bar',d.by_issue.map(x=>x.issue_type),[{label:'Downtime h',data:d.by_issue.map(x=>x.downtime_hours),backgroundColor:COL[5]}],{indexAxis:'y'});
+ table('#mtop',d.top_stations)}
+async function dq(){const d=await api('quality',false);
+ table('#dq',Object.entries(d.report).map(([k,v])=>({check:k.replace(/_/g,' '),value:String(v)})));
+ table('#dc',Object.entries(d.table_counts).map(([k,v])=>({table:k,rows:v})))}
+const loaders=[overview,olap,mining,maint,dq];let cur=0;
+function show(i){document.querySelectorAll('.tab').forEach((t,j)=>t.classList.toggle('on',i==j));
+ document.querySelectorAll('#nav button').forEach((b,j)=>b.classList.toggle('on',i==j));
+ $('#bar').style.display=[0,1].includes(i)?'flex':'none';cur=i;loaders[i]()}
+(async()=>{$('#nav').innerHTML=TABS.map((t,i)=>`<button class="${i?'':'on'}" onclick="show(${i})">${t}</button>`).join('');
+ const m=await api('meta',false);opts('#fy',m.years,'All years');opts('#fm',MN.map((n,i)=>i+1),'All months');opts('#fc',m.cities,'All cities');opts('#ft',m.charger_types,'All types');
+ ['fy','fm','fc','ft'].forEach(i=>$('#'+i).onchange=()=>loaders[cur]());buildOps();overview()})();
+</script></body></html>
